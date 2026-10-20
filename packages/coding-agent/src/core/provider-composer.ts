@@ -538,7 +538,12 @@ export function validateExtensionProvider(
 	applyExtension(providerId, applyModelsJson(providerId, getAllProviderModels(base), modelsConfig), extension);
 }
 
-/** Compose built-in, models.json, and extension layers without reading credentials. */
+const extensionModelSnapshots = new WeakMap<ProviderConfigInput, ProviderModelConfig[]>();
+
+/**
+ * Compose built-in, models.json, and extension layers without reading credentials.
+ * Retain published extension models across recomposition of the same registration, not re-registration.
+ */
 export function composeModelProvider(
 	providerId: string,
 	base: Provider | undefined,
@@ -547,7 +552,7 @@ export function composeModelProvider(
 ): Provider {
 	const config = modelConfig.getProvider(providerId);
 	let extensionOAuthCredential: OAuthCredentials | undefined;
-	let refreshedExtensionModels: ProviderConfigInput["models"];
+	let refreshedExtensionModels = extension && extensionModelSnapshots.get(extension);
 	const currentExtension = (): ProviderConfigInput | undefined =>
 		extension && refreshedExtensionModels ? { ...extension, models: refreshedExtensionModels } : extension;
 	// models.json modelOverrides are the topmost user-config layer: they apply once,
@@ -620,13 +625,14 @@ export function composeModelProvider(
 						const oauthCredential = context.credential?.type === "oauth" ? context.credential : undefined;
 						await context.publish({
 							update: () => {
-								if (refreshed) {
+								if (extension && refreshed) {
 									// Validate before publishing the new synchronous list.
 									applyExtension(providerId, applyModelsJson(providerId, getAllProviderModels(base), config), {
 										...extension,
 										models: refreshed,
 									});
 									refreshedExtensionModels = refreshed;
+									extensionModelSnapshots.set(extension, refreshed);
 								}
 								extensionOAuthCredential = oauthCredential;
 							},
